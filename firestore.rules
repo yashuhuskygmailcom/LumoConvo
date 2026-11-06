@@ -1,0 +1,379 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function verified() {
+      return signedIn() && request.auth.token.email_verified == true;
+    }
+
+    function profileComplete() {
+      return verified()
+        && get(
+          /databases/$(database)/documents/users/$(request.auth.uid)
+        ).data.profileCompleted == true;
+    }
+
+    function validAvatar(data) {
+      return !('avatarBytes' in data)
+        || (data.avatarBytes is bytes && data.avatarBytes.size() <= 358400);
+    }
+
+    function validSettings(data) {
+      return data.keys().hasOnly([
+          'notificationsEnabled',
+          'messagePreviews',
+          'soundsEnabled',
+          'showOnlineStatus',
+          'updatedAt'
+        ])
+        && data.notificationsEnabled is bool
+        && data.messagePreviews is bool
+        && data.soundsEnabled is bool
+        && data.showOnlineStatus is bool
+        && data.updatedAt is timestamp;
+    }
+
+    function validQrPointer(data) {
+      return data.keys().hasOnly(['token', 'createdAt', 'updatedAt'])
+        && data.keys().hasAll(['token', 'createdAt', 'updatedAt'])
+        && data.token is string
+        && data.token.size() == 32
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function validProfilePreview(profile) {
+      return profile is map
+        && profile.keys().hasOnly(['displayName', 'photoUrl', 'status'])
+        && profile.displayName is string
+        && profile.displayName.size() > 0
+        && profile.displayName.size() <= 40
+        && profile.photoUrl is string
+        && profile.status is string
+        && profile.status.size() > 0
+        && profile.status.size() <= 120;
+    }
+
+    function acceptedInvite(ownerId, peerId) {
+      return (
+          existsAfter(
+            /databases/$(database)/documents/users/$(ownerId)/contactInvites/$(peerId)
+          )
+          && getAfter(
+            /databases/$(database)/documents/users/$(ownerId)/contactInvites/$(peerId)
+          ).data.status == 'accepted'
+        ) || (
+          existsAfter(
+            /databases/$(database)/documents/users/$(peerId)/contactInvites/$(ownerId)
+          )
+          && getAfter(
+            /databases/$(database)/documents/users/$(peerId)/contactInvites/$(ownerId)
+          ).data.status == 'accepted'
+        );
+    }
+
+    function conversationMember(data) {
+      return verified()
+        && data.memberIds is list
+        && request.auth.uid in data.memberIds;
+    }
+
+    function acceptedConversation(conversationId, data) {
+      let peerId = data.memberIds[0] == request.auth.uid
+        ? data.memberIds[1]
+        : data.memberIds[0];
+      return profileComplete()
+        && data.memberIds is list
+        && data.memberIds.size() == 2
+        && request.auth.uid in data.memberIds
+        && existsAfter(
+          /databases/$(database)/documents/users/$(request.auth.uid)/contacts/$(peerId)
+        )
+        && getAfter(
+          /databases/$(database)/documents/users/$(request.auth.uid)/contacts/$(peerId)
+        ).data.conversationId == conversationId;
+    }
+
+    function acceptedGroup(data) {
+      return profileComplete()
+        && data.type == 'group'
+        && data.creatorId == request.auth.uid
+        && data.name is string
+        && data.name.size() >= 2
+        && data.name.size() <= 60
+        && data.memberIds is list
+        && data.memberIds.size() >= 3
+        && data.memberIds.size() <= 5
+        && data.memberIds[0] == request.auth.uid
+        && data.memberIds[1] is string
+        && data.memberIds[2] is string
+        && data.memberIds[1] != data.memberIds[2]
+        && exists(
+          /databases/$(database)/documents/users/$(request.auth.uid)/contacts/$(data.memberIds[1])
+        )
+        && exists(
+          /databases/$(database)/documents/users/$(request.auth.uid)/contacts/$(data.memberIds[2])
+        )
+        && (
+          data.memberIds.size() < 4
+          || (
+            data.memberIds[3] is string
+            && data.memberIds[3] != data.memberIds[1]
+            && data.memberIds[3] != data.memberIds[2]
+            && exists(
+              /databases/$(database)/documents/users/$(request.auth.uid)/contacts/$(data.memberIds[3])
+            )
+          )
+        )
+        && (
+          data.memberIds.size() < 5
+          || (
+            data.memberIds[4] is string
+            && data.memberIds[4] != data.memberIds[1]
+            && data.memberIds[4] != data.memberIds[2]
+            && data.memberIds[4] != data.memberIds[3]
+            && exists(
+              /databases/$(database)/documents/users/$(request.auth.uid)/contacts/$(data.memberIds[4])
+            )
+          )
+        )
+        && data.createdAt == request.time
+        && data.updatedAt == request.time;
+    }
+
+    match /users/{userId} {
+      allow get: if signedIn()
+        && (
+          request.auth.uid == userId
+          || (
+            verified()
+            && exists(
+              /databases/$(database)/documents/users/$(request.auth.uid)/contacts/$(userId)
+            )
+          )
+        );
+      allow list: if false;
+      allow create: if signedIn()
+        && request.auth.uid == userId
+        && request.resource.data.uid == request.auth.uid
+        && validAvatar(request.resource.data);
+      allow update: if signedIn()
+        && request.auth.uid == userId
+        && request.resource.data.uid == resource.data.uid
+        && validAvatar(request.resource.data);
+      allow delete: if false;
+
+      match /private/{documentId} {
+        allow get: if signedIn() && request.auth.uid == userId;
+        allow list: if false;
+        allow create, update: if signedIn()
+          && request.auth.uid == userId
+        && (
+            (documentId == 'settings' && validSettings(request.resource.data))
+            || (documentId == 'qr' && validQrPointer(request.resource.data))
+            || (
+              documentId == 'messaging'
+              && request.resource.data.keys().hasOnly(['tokens', 'updatedAt'])
+              && request.resource.data.tokens is list
+              && request.resource.data.tokens.size() <= 10
+              && request.resource.data.updatedAt is timestamp
+            )
+          );
+        allow delete: if false;
+      }
+
+      match /contactInvites/{senderId} {
+        allow get: if signedIn()
+          && (request.auth.uid == userId || request.auth.uid == senderId);
+        allow list: if signedIn() && request.auth.uid == userId;
+        allow create: if profileComplete()
+          && request.auth.uid == senderId
+          && request.resource.data.senderId == request.auth.uid
+          && request.resource.data.recipientId == userId
+          && senderId != userId
+          && request.resource.data.status == 'pending'
+          && request.resource.data.keys().hasOnly([
+            'senderId',
+            'recipientId',
+            'qrToken',
+            'status',
+            'senderProfile',
+            'recipientProfile',
+            'createdAt',
+            'updatedAt'
+          ])
+          && validProfilePreview(request.resource.data.senderProfile)
+          && validProfilePreview(request.resource.data.recipientProfile)
+          && request.resource.data.createdAt == request.time
+          && request.resource.data.updatedAt == request.time
+          && get(
+            /databases/$(database)/documents/qrCodes/$(request.resource.data.qrToken)
+          ).data.ownerId == userId
+          && get(
+            /databases/$(database)/documents/qrCodes/$(request.resource.data.qrToken)
+          ).data.active == true;
+        allow update: if profileComplete()
+          && request.auth.uid == userId
+          && resource.data.recipientId == request.auth.uid
+          && resource.data.senderId == senderId
+          && resource.data.status == 'pending'
+          && request.resource.data.senderId == resource.data.senderId
+          && request.resource.data.recipientId == resource.data.recipientId
+          && request.resource.data.qrToken == resource.data.qrToken
+          && request.resource.data.senderProfile == resource.data.senderProfile
+          && request.resource.data.recipientProfile == resource.data.recipientProfile
+          && request.resource.data.createdAt == resource.data.createdAt
+          && request.resource.data.status in ['accepted', 'declined']
+          && request.resource.data.updatedAt == request.time
+          && request.resource.data.respondedAt == request.time
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+            'status',
+            'conversationId',
+            'respondedAt',
+            'updatedAt'
+          ])
+          && (
+            request.resource.data.status == 'declined'
+            || (
+              request.resource.data.conversationId is string
+              && request.resource.data.conversationId.size() > 0
+              && existsAfter(
+                /databases/$(database)/documents/users/$(userId)/contacts/$(senderId)
+              )
+              && existsAfter(
+                /databases/$(database)/documents/users/$(senderId)/contacts/$(userId)
+              )
+            )
+          );
+        allow delete: if false;
+      }
+
+      match /contacts/{peerId} {
+        allow get, list: if signedIn() && request.auth.uid == userId;
+        allow create: if profileComplete()
+          && request.auth.uid in [userId, peerId]
+          && userId != peerId
+          && request.resource.data.keys().hasOnly([
+            'peerId',
+            'conversationId',
+            'peerProfile',
+            'acceptedAt'
+          ])
+          && request.resource.data.peerId == peerId
+          && request.resource.data.conversationId is string
+          && request.resource.data.conversationId.size() > 0
+          && validProfilePreview(request.resource.data.peerProfile)
+          && request.resource.data.acceptedAt == request.time
+          && acceptedInvite(userId, peerId)
+          && getAfter(
+            /databases/$(database)/documents/users/$(peerId)/contacts/$(userId)
+          ).data.peerId == userId
+          && getAfter(
+            /databases/$(database)/documents/users/$(peerId)/contacts/$(userId)
+          ).data.conversationId == request.resource.data.conversationId;
+        allow update, delete: if false;
+      }
+      match /groupConversations/{conversationId} {
+        allow get, list: if signedIn() && request.auth.uid == userId;
+        allow create: if profileComplete()
+          && request.resource.data.keys().hasOnly([
+            'conversationId',
+            'creatorId',
+            'createdAt'
+          ])
+          && request.resource.data.conversationId == conversationId
+          && request.resource.data.creatorId == request.auth.uid
+          && request.resource.data.createdAt == request.time
+          && getAfter(
+            /databases/$(database)/documents/conversations/$(conversationId)
+          ).data.type == 'group'
+          && getAfter(
+            /databases/$(database)/documents/conversations/$(conversationId)
+          ).data.creatorId == request.auth.uid
+          && userId in getAfter(
+            /databases/$(database)/documents/conversations/$(conversationId)
+          ).data.memberIds;
+        allow update, delete: if false;
+      }
+    }
+
+    match /qrCodes/{token} {
+      allow get: if profileComplete()
+        && (!exists(/databases/$(database)/documents/qrCodes/$(token))
+          || resource.data.active == true);
+      allow list: if false;
+      allow create: if profileComplete()
+        && request.resource.data.ownerId == request.auth.uid
+        && request.resource.data.active == true
+        && request.resource.data.keys().hasOnly([
+          'ownerId',
+          'displayName',
+          'photoUrl',
+          'status',
+          'active',
+          'createdAt',
+          'updatedAt'
+        ])
+        && request.resource.data.createdAt == request.time
+        && request.resource.data.updatedAt == request.time
+        && getAfter(
+          /databases/$(database)/documents/users/$(request.auth.uid)/private/qr
+        ).data.token == token;
+      allow update: if profileComplete()
+        && resource.data.ownerId == request.auth.uid
+        && request.resource.data.ownerId == resource.data.ownerId
+        && request.resource.data.createdAt == resource.data.createdAt
+        && request.resource.data.active == true
+        && get(
+          /databases/$(database)/documents/users/$(request.auth.uid)/private/qr
+        ).data.token == token;
+      allow delete: if false;
+    }
+
+    match /conversations/{conversationId} {
+      allow get: if conversationMember(resource.data);
+      allow list: if verified()
+        && request.auth.uid in resource.data.memberIds;
+      allow create: if (
+          acceptedConversation(conversationId, request.resource.data)
+          && request.resource.data.type == 'direct'
+        ) || acceptedGroup(request.resource.data);
+      allow update: if (
+          conversationMember(resource.data)
+          && request.resource.data.memberIds == resource.data.memberIds
+          && request.resource.data.type == resource.data.type
+        ) || (
+          acceptedConversation(conversationId, request.resource.data)
+          && request.resource.data.type == 'direct'
+        );
+      allow delete: if false;
+
+      match /messages/{messageId} {
+        allow read: if conversationMember(
+          get(
+            /databases/$(database)/documents/conversations/$(conversationId)
+          ).data
+        );
+        allow create: if conversationMember(
+            get(
+              /databases/$(database)/documents/conversations/$(conversationId)
+            ).data
+          )
+          && request.resource.data.keys().hasOnly([
+            'senderId',
+            'text',
+            'createdAt'
+          ])
+          && request.resource.data.senderId == request.auth.uid
+          && request.resource.data.text is string
+          && request.resource.data.text.size() > 0
+          && request.resource.data.text.size() <= 5000;
+        allow update, delete: if false;
+      }
+    }
+  }
+}

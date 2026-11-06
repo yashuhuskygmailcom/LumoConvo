@@ -1,0 +1,54 @@
+{
+  "project_info": {
+    "project_number": "86081182773",
+    "project_id": "lumoconvo",
+    "storage_bucket": "lumoconvo.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:86081182773:android:d165f41de53ba9e5b8657c",
+        "android_client_info": {
+          "package_name": "com.lumoconvo.app"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "86081182773-vva1jv1hvecpoc3dk10rabn8o26l2gr1.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.lumoconvo.app",
+            "certificate_hash": "96b13848726214004f16b99cef08f93790d1d5f9"
+          }
+        },
+        {
+          "client_id": "86081182773-i6vrmuj3ek008qddpp7mo99taair97cr.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBCBfWmzhCBd2BGrxP_tQh0Xt6thBQqF8A"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "86081182773-i6vrmuj3ek008qddpp7mo99taair97cr.apps.googleusercontent.com",
+              "client_type": 3
+            },
+            {
+              "client_id": "86081182773-l7tqincrdjmgb4jfbhlai0il1dq7921v.apps.googleusercontent.com",
+              "client_type": 2,
+              "ios_info": {
+                "bundle_id": "com.lumoconvo.app"
+              }
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

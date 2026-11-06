@@ -1,0 +1,19 @@
+abstract final class HayRoutes {
+  static const splash = '/splash';
+  static const onboarding = '/onboarding';
+  static const signIn = '/sign-in';
+  static const signUp = '/sign-up';
+  static const verifyEmail = '/verify-email';
+  static const createProfile = '/create-profile';
+  static const forgotPassword = '/forgot-password';
+  static const home = '/home';
+  static const newConversation = '/new-conversation';
+  static const createGroup = '/create-group';
+  static const conversation = '/conversation';
+  static const chat = '/chat';
+  static const profile = '/profile';
+  static const settings = '/settings';
+  static const myQr = '/my-qr';
+  static const scanQr = '/scan-qr';
+  static const contactInvites = '/contact-invites';
+}
